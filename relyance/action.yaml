@@ -1,0 +1,21 @@
+name: Relyance SCI Scan
+description: "This GitHub Action scans the codebase for security vulnerabilities using Relyance's Compliance Inspector."
+
+inputs:
+  secrets-dpp-sci-key:
+    description: "The private key for relyance-sci"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout
+      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0 https://github.com/actions/checkout/releases/tag/v5.0.0
+
+    - name: Pull and run SCI binary
+      shell: bash
+      env:
+        API_KEY: ${{ inputs.secrets-dpp-sci-key }}
+      run: |-
+        docker pull gcr.io/relyance-ext/compliance_inspector:release && \
+        docker run --rm -v `pwd`:/repo --env API_KEY="$API_KEY" gcr.io/relyance-ext/compliance_inspector:release
