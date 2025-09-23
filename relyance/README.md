@@ -1,6 +1,6 @@
 # Relyance SCI GitHub Action
 
-This directory contains the **Relyance SCI** GitHub Action, used to run Relyance SCI scans as part of your CI/CD workflows.
+This directory contains the **Relyance SCI** GitHub Action, used to run Relyance SCI scans as part of CI/CD workflows.
 
 ## What is Relyance SCI?
 
