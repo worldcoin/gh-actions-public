@@ -1,19 +1,19 @@
 apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
-  annotations: 
+  annotations:
     github.com/project-slug: worldcoin/gh-actions-public
-  tags: ["code-lang:actions"]
+  tags: ['code-lang:actions']
   description: Public repository with Github Actions
   links:
-  - title: Linear
-    url: PLACEHOLDER-ADD-LINEAR-URL
-  - title: Documentation
-    url: PLACEHOLDER-ADD-DOCUMENTATION-URL
-  - title: Slack
-    url: https://tfh.slack.com/app_redirect?channel=team-infrastructure
+    - title: Linear
+      url: PLACEHOLDER-ADD-LINEAR-URL
+    - title: Documentation
+      url: PLACEHOLDER-ADD-DOCUMENTATION-URL
+    - title: Slack
+      url: https://tfh.slack.com/app_redirect?channel=team-infrastructure
   name: gh-actions-public
-spec: 
+spec:
   lifecycle: production
   owner: team-infrastructure
   type: library
