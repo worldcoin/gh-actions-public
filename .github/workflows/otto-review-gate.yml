@@ -61,13 +61,13 @@ jobs:
             exit 0
           fi
 
-          INDEPENDENT_APPROVALS=$(echo "$APPROVERS" | jq --arg u "$REQUESTER" '[.[] | select(. != $u)] | length')
-          if [[ "$INDEPENDENT_APPROVALS" -lt 1 ]]; then
+          SELF_APPROVED=$(echo "$APPROVERS" | jq --arg u "$REQUESTER" 'any(. == $u)')
+          if [[ "$SELF_APPROVED" == "true" ]]; then
             gh api "repos/$REPO/statuses/$HEAD_SHA" \
               -f state=failure -f context="otto/review-gate" \
-              -f description="Otto PR requires at least one approval from someone other than @${REQUESTER}."
+              -f description="@${REQUESTER} requested and approved their own Otto PR — a different reviewer must approve."
           else
             gh api "repos/$REPO/statuses/$HEAD_SHA" \
               -f state=success -f context="otto/review-gate" \
-              -f description="Gate passed — at least one independent approver present."
+              -f description="Gate passed — requester @${REQUESTER} has not self-approved."
           fi
