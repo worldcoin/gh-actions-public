@@ -31,7 +31,7 @@ jobs:
           PR_AUTHOR=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json author --jq '.author.login')
           echo "PR author: $PR_AUTHOR"
 
-          if [[ "$PR_AUTHOR" != "agentotto" ]]; then
+          if [[ "$PR_AUTHOR" != "app/agentotto" ]]; then
             echo "Not an Otto PR — gate not applicable."
             gh api "repos/$REPO/statuses/$HEAD_SHA" \
               -f state=success -f context="otto/review-gate" \
