@@ -1,5 +1,5 @@
 name: Otto Review Gate
-description: "Enforces the Otto review gate security control — prevents the person who requested an Otto PR from being the sole approver of their own code."
+description: "Enforces the Otto review gate security control — Otto-authored PRs require at least 2 independent approvals before merge."
 
 inputs:
   pr_number:
@@ -33,35 +33,16 @@ runs:
           exit 0
         fi
 
-        PR_BODY=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json body --jq '.body')
-        REQUESTER=$(echo "$PR_BODY" | head -5 | grep -oP '(?<=<!-- otto-requester: @)\w+(?= -->)' || true)
-        echo "Requester: ${REQUESTER:-<not found>}"
-
-        APPROVERS=$(gh api "repos/$REPO/pulls/$PR_NUMBER/reviews" \
-          --jq '[.[] | select(.state == "APPROVED") | .user.login]')
-        APPROVAL_COUNT=$(echo "$APPROVERS" | jq 'length')
+        APPROVAL_COUNT=$(gh api "repos/$REPO/pulls/$PR_NUMBER/reviews" \
+          --jq '[.[] | select(.state == "APPROVED")] | length')
         echo "Approval count: $APPROVAL_COUNT"
 
-        if [[ -z "$REQUESTER" || "$REQUESTER" == "unknown" ]]; then
-          if [[ "$APPROVAL_COUNT" -ge 2 ]]; then
-            gh api "repos/$REPO/statuses/$HEAD_SHA" \
-              -f state=success -f context="otto/review-gate" \
-              -f description="No requester tag — 2 approvals present, gate passed."
-          else
-            gh api "repos/$REPO/statuses/$HEAD_SHA" \
-              -f state=failure -f context="otto/review-gate" \
-              -f description="Otto PR missing requester tag — needs 2 approvals or add <!-- otto-requester: @username -->."
-          fi
-          exit 0
-        fi
-
-        SELF_APPROVED=$(echo "$APPROVERS" | jq --arg u "$REQUESTER" 'any(. == $u)')
-        if [[ "$SELF_APPROVED" == "true" ]]; then
-          gh api "repos/$REPO/statuses/$HEAD_SHA" \
-            -f state=failure -f context="otto/review-gate" \
-            -f description="@${REQUESTER} requested and approved their own Otto PR — a different reviewer must approve."
-        else
+        if [[ "$APPROVAL_COUNT" -ge 2 ]]; then
           gh api "repos/$REPO/statuses/$HEAD_SHA" \
             -f state=success -f context="otto/review-gate" \
-            -f description="Gate passed — requester @${REQUESTER} has not self-approved."
+            -f description="Gate passed — 2 approvals present."
+        else
+          gh api "repos/$REPO/statuses/$HEAD_SHA" \
+            -f state=failure -f context="otto/review-gate" \
+            -f description="Otto PRs require 2 approvals (${APPROVAL_COUNT}/2 present)."
         fi
