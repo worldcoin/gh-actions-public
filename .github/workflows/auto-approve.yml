@@ -1,0 +1,34 @@
+name: Auto approve
+
+# Dogfoods the auto-approve action from auto-approve/.
+#
+# `pull_request_target` runs this file from the base branch, so a pull request cannot rewrite the job
+# that approves it or reach the OpenRouter key. The action is referenced at @main, so it reviews with
+# the version that is actually merged, and a changed file under .github is one of the guards that
+# blocks an approval.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: auto-approve-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  auto-approve:
+    name: auto-approve
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Auto approve
+        uses: worldcoin/gh-actions-public/auto-approve@main
+        # More information: https://github.com/worldcoin/gh-actions-public/tree/main/auto-approve
+        with:
+          openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}
+          bot-token: ${{ secrets.BOT_TOKEN }}
+          bot-login: bober-agent
