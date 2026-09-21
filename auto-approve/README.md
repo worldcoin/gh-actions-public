@@ -55,6 +55,10 @@ dependency bumps, which it cannot check against upstream.
 - The calling workflow must use `pull_request_target` and grant `contents: read` and
   `pull-requests: read`. The action reads the pull request from the event payload, so it only does
   anything useful for pull request events.
+- Gate the job on the base branch you intend to approve (`if: github.event.pull_request.base.ref ==
+  'main'`). `pull_request_target` loads the workflow file from the pull request's base branch, so any
+  other base runs that branch's copy of it with your secrets in scope. The action's own `base-branch`
+  guard runs far too late to prevent that.
 - The bot account needs write access to the repository for its approval to count. Add it to
   `CODEOWNERS` if you also want it requested as a reviewer.
 - The guards only approve pull requests against `base-branch` whose head is a branch of the same

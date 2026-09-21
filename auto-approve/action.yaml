@@ -1,4 +1,7 @@
 name: Auto Approve
+# TODO: the review step runs the agent with the OpenRouter key in its environment and a shell over
+# untrusted content, so a prompt injection can read that key. A credential-hiding proxy or a separate
+# job would remove the exposure. See the same note in the walletkit workflow this came from.
 description: "Reviews a pull request with a pi agent and approves it when the recorded verdict is low risk and the guards hold."
 
 inputs:
@@ -68,7 +71,7 @@ runs:
     # low-confidence answer, or anything it cannot judge from a partial diff goes to the agent.
     - name: Pre-filter
       id: prefilter
-      # Forks get no secrets, so there is nothing to ask.
+      # Forks are out of scope for an automatic approval.
       if: inputs.prefilter == 'true' && github.event.pull_request.head.repo.full_name == github.repository
       # A screen that cannot run is not a reason to withhold the full review.
       continue-on-error: true
@@ -130,7 +133,7 @@ runs:
         echo "::notice::$model scored this $score, at or above $PREFILTER_THRESHOLD; skipping the full review"
 
     - name: Install pi
-      if: steps.prefilter.outputs.run_review != 'false'
+      if: steps.prefilter.outputs.run_review != 'false' && github.event.pull_request.head.repo.full_name == github.repository
       shell: bash
       env:
         PI_VERSION: ${{ inputs.pi-version }}
@@ -139,7 +142,7 @@ runs:
     # No bot token in this step: the agent has shell access over untrusted
     # content, so the approval is submitted by the step below instead.
     - name: Review
-      # Forks get no secrets, so there is nothing to review with.
+      # Forks are out of scope for an automatic approval.
       if: github.event.pull_request.head.repo.full_name == github.repository && steps.prefilter.outputs.run_review != 'false'
       shell: bash
       env:
@@ -194,7 +197,7 @@ runs:
           "Review $GITHUB_REPOSITORY#$PR_NUMBER and record your verdict."
 
     - name: Report
-      if: always()
+      if: always() && github.event.pull_request.head.repo.full_name == github.repository
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.bot-token }}
@@ -208,9 +211,9 @@ runs:
         elif [ -f /tmp/prefilter.json ]; then
           outcome="Pre-filter $(jq -r .model /tmp/prefilter.json) scored this $(jq -r .score /tmp/prefilter.json) on the skip-review question, so the detailed review was skipped."
         fi
-        session=$(ls -t /tmp/pi-sessions/*.jsonl 2>/dev/null | head -1 || true)
-        said=$( [ -n "$session" ] && jq -r 'select(.message.role == "assistant") | .message.content[]? | select(.type == "text") | .text' "$session" 2>/dev/null | tail -c 2500 || true )
-        body=$(printf 'Risk agent: %s\n\n%s' "$outcome" "${said:-see the run log}")
+        # The agent transcript stays in the run log: this comment is public, and masking applies to
+        # logs, not to comments.
+        body=$(printf 'Risk agent: %s\n\nThe agent transcript is in the run log.' "$outcome")
         gh pr comment "$PR_NUMBER" --body "$body" --edit-last 2>/dev/null || gh pr comment "$PR_NUMBER" --body "$body"
 
     - name: Approve when the verdict allows it
@@ -249,4 +252,9 @@ runs:
           exit 0
         fi
 
-        gh pr review --approve --body "Risk agent: $(jq -r .reason /tmp/verdict.json)" "$PR_NUMBER"
+        # Bind the approval to the head that was reviewed. `gh pr review` has no commit_id, so a
+        # push landing between the checks above and the review could attach it to a head the agent
+        # did not see.
+        body="Risk agent: $(jq -r .reason /tmp/verdict.json)"
+        gh api -X POST "/repos/$repo/pulls/$PR_NUMBER/reviews" \
+          -f commit_id="$EXPECTED_HEAD" -f event=APPROVE -f body="$body" >/dev/null
