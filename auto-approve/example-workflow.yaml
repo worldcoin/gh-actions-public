@@ -1,7 +1,7 @@
 name: Auto approve
 
-# A pi agent reviews the pull request with its normal tools and records a verdict
-# through its approve_pr tool. The step after it holds the bot token and approves
+# An agent reviews the pull request with its normal tools and records a verdict by
+# writing /tmp/verdict.json. The step after it holds the bot token and approves
 # only when that verdict is low risk and the guards hold. Review threads must still
 # be resolved before the merge, which branch protection requires.
 #
