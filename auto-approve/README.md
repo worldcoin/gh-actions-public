@@ -32,12 +32,23 @@ by the pull request it judges.
   approve when any of them holds. The caller's standards for its own repository belong here; the
   default stops on large API surfaces, exported-API changes, oversized diffs, CI/workflow/release
   configuration, unverified dependency changes and external contributions.
+- `prefilter` (optional, default `true`): screen the pull request with a cheap decision model before
+  running the review. Set to `false` to always run the review.
+- `prefilter-model` (optional, default `typesafe/jev-1.13`): model used to screen.
+- `prefilter-threshold` (optional, default `0.5`): skip the review when the model scores the
+  skip-review question at or above this value.
 
 Dependency bumps are not blocked outright. The prompt tells the agent to check what actually changed
 upstream between the old and new version — release notes, changelog and the diff where available —
 and to refuse when the version does not exist upstream, does not match the pinned commit or integrity
 hash, changes a source or registry URL, adds or changes an install/build/postinstall hook, pulls in
 unexpected transitive dependencies, or changes maintainership.
+
+Before the agent runs, a decision model scores the diff against a coarse "should this skip the
+detailed review?" question and can skip it, which saves the install and the agent run on pull
+requests that would not be approved anyway. It can only skip a review, never approve one: an error, a
+missing answer, an empty diff, or an answer below the threshold all still go to the agent, and so do
+dependency bumps, which it cannot check against upstream.
 
 ## Consumer setup
 
