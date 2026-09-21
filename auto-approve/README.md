@@ -61,6 +61,13 @@ dependency bumps, which it cannot check against upstream.
   guard runs far too late to prevent that.
 - The bot account needs write access to the repository for its approval to count. Add it to
   `CODEOWNERS` if you also want it requested as a reviewer.
+- **Required: the repository must dismiss stale approvals when new commits are pushed**
+  (`dismiss_stale_reviews`, which is the default in `worldcoin/terraform-github-modules//
+  app-repository`), and it should also require the approval to come from someone other than the last
+  pusher (`require_last_push_approval`). The action binds its approval to the head it reviewed, but
+  GitHub carries an approval across commits when stale approvals are not dismissed: without this, a
+  push landing after the review leaves the new head satisfying the approval requirement without ever
+  having been reviewed. The action cannot check or enforce this, so verify it before adopting.
 - The guards only approve pull requests against `base-branch` whose head is a branch of the same
   repository, that are not drafts, whose author is not the bot and is a member/collaborator, whose
   head has not moved since the verdict, and that do not touch `.github/`.

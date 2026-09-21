@@ -235,6 +235,9 @@ runs:
         # Bind the approval to the head that was reviewed. `gh pr review` has no commit_id, so a
         # push landing between the checks above and the review could attach it to a head the agent
         # did not see.
+        # Correctness also depends on repository configuration this action cannot see: stale approvals
+        # must be dismissed when commits are pushed, or this approval would carry over to a head the
+        # agent never reviewed. See "Consumer setup" in the README.
         body="Risk agent: $(jq -r '.reason // "low risk"' /tmp/verdict.json)"
         gh api -X POST "/repos/$repo/pulls/$PR_NUMBER/reviews" \
           -f commit_id="$EXPECTED_HEAD" -f event=APPROVE -f body="$body" >/dev/null
