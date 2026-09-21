@@ -27,11 +27,17 @@ by the pull request it judges.
 - `provider` (optional, default `openrouter`): model provider passed to pi.
 - `model` (optional, default `deepseek/deepseek-v4.1-flash`): model passed to pi.
 - `low-risk-criteria` (optional): fills the "A low-risk change is:" slot in the review prompt. The
-  default describes a change a reviewer can read in one pass.
+  default describes a change a reviewer can read in one pass, including a verified dependency bump.
 - `high-risk-conditions` (optional): conditions that make a change high risk. The agent must not
   approve when any of them holds. The caller's standards for its own repository belong here; the
-  default stops on large API surfaces, exported-API changes, oversized diffs, CI/dependency
-  configuration and external contributions.
+  default stops on large API surfaces, exported-API changes, oversized diffs, CI/workflow/release
+  configuration, unverified dependency changes and external contributions.
+
+Dependency bumps are not blocked outright. The prompt tells the agent to check what actually changed
+upstream between the old and new version — release notes, changelog and the diff where available —
+and to refuse when the version does not exist upstream, does not match the pinned commit or integrity
+hash, changes a source or registry URL, adds or changes an install/build/postinstall hook, pulls in
+unexpected transitive dependencies, or changes maintainership.
 
 ## Consumer setup
 
