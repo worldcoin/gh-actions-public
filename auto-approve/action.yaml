@@ -103,7 +103,11 @@ runs:
           });
         }
         TS
-        timeout 900 pi --print --mode text --no-skills --no-context-files \
+        # Skills and context files are not disabled. The agent runs in an empty working directory
+        # because this action checks out nothing, so there is no repository content to load them
+        # from. Checking out code before this step would turn both into untrusted instruction
+        # channels.
+        timeout 900 pi --print --mode text \
           --provider "$PROVIDER" --model "$MODEL" \
           --extension "$pi_dir/approve.ts" \
           --session-dir /tmp/pi-sessions \
