@@ -1,0 +1,27 @@
+name: "Close stale issues and PRs"
+on:
+  schedule:
+    - cron: "10 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    runs-on:
+      group: arc-public-large-arm64-runner
+    steps:
+      - uses: actions/stale@1e223db275d687790206a7acac4d1a11bd6fe629
+        with:
+          start-date: "2024-11-05T00:00:00Z"
+          stale-pr-message: "This PR has had no activity for 4 days. Comment or remove the stale label to keep it open; otherwise it will close after 8 more days without activity."
+          close-pr-message: "This PR was closed after 8 days without activity since it was marked stale."
+          days-before-issue-stale: -1
+          days-before-issue-close: -1
+          days-before-pr-stale: 4
+          days-before-pr-close: 8
+          delete-branch: true
+          operations-per-run: 50
