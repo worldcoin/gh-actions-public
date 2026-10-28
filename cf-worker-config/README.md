@@ -39,9 +39,7 @@ jobs:
         with:
           worker: tfh-website-dev
           config: cf-worker-config.json
-          mode: plan-and-apply
           app_ref: ${{ github.event.inputs.app_ref || '' }}
-          cf_worker_config_ref: main
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 ```
@@ -49,9 +47,13 @@ jobs:
 Replace `@main` with a pinned `worldcoin/gh-actions-public` commit SHA in repositories
 that enforce immutable GitHub Actions references.
 
-`mode: plan-and-apply` is the default. It runs `plan` first and then `apply`,
-including on pull requests, so Workers Builds configuration can be updated before
-Cloudflare builds previews. Use `mode: plan` only for dry-runs.
+Pull request events default to `mode: plan` and reject modes that write to
+Cloudflare. Other events default to `mode: plan-and-apply`, which runs `plan`
+before `apply`. Run applies from approved branches or a protected manual job.
+Use `mode: plan` for other dry-runs.
+
+The action pins the reconciler to a reviewed commit. Set `cf_worker_config_ref`
+to another reviewed commit SHA when intentionally updating the tool.
 
 Runtime secrets are intentionally separate from the PR/push reconciliation flow.
 Use `mode: sync-runtime-secrets` from a manual workflow after updating GitHub
@@ -76,7 +78,6 @@ jobs:
           worker: tfh-website-dev
           config: cf-worker-config.json
           mode: sync-runtime-secrets
-          cf_worker_config_ref: main
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           NEXT_SERVER_HUBSPOT_API_TOKEN: ${{ secrets.NEXT_SERVER_HUBSPOT_API_TOKEN }}
@@ -92,8 +93,8 @@ jobs:
 | --- | --- | --- | --- |
 | `worker` | yes | | Worker key from `cf-worker-config.json`. |
 | `config` | no | `cf-worker-config.json` | Relative path to the config file in the caller repository. |
-| `mode` | no | `plan-and-apply` | One of `plan`, `plan-and-apply`, or `sync-runtime-secrets`. |
-| `cf_worker_config_ref` | no | `main` | Branch, tag, or commit SHA from `worldcoin/cf-worker-config` to build. |
+| `mode` | no | `plan` for PRs; `plan-and-apply` otherwise | One of `plan`, `plan-and-apply`, or `sync-runtime-secrets`. PR events allow `plan` only. |
+| `cf_worker_config_ref` | no | `7131811e5162e2a98c29728938ee7ff74d131d0f` | Reviewed commit SHA from `worldcoin/cf-worker-config` to build. |
 | `github_token` | no | | Optional token for GitHub repository metadata lookups. Defaults to `github.token`, which is sufficient for the public tool repository and the caller repository. |
 | `app_ref` | no | | Optional branch, tag, or commit SHA from the caller repository to check out. |
 
