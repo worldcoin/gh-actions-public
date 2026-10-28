@@ -57,7 +57,7 @@ runs:
 
         if [ -z "$MODE" ]; then
           case "$GITHUB_EVENT_NAME" in
-            pull_request|pull_request_target) MODE="plan" ;;
+            pull_request*) MODE="plan" ;;
             *) MODE="plan-and-apply" ;;
           esac
         fi
@@ -72,7 +72,7 @@ runs:
         esac
 
         case "$GITHUB_EVENT_NAME" in
-          pull_request|pull_request_target)
+          pull_request*)
             if [ "$MODE" != plan ]; then
               echo "pull request events only support mode: plan" >&2
               exit 1
@@ -94,6 +94,7 @@ runs:
         echo "skipped=false" >> "$GITHUB_OUTPUT"
         echo "effective_mode=$MODE" >> "$GITHUB_OUTPUT"
 
+        rm -f "$RUNNER_TEMP/cf-worker-config-failure-commented"
         comment_file="$RUNNER_TEMP/cf-worker-config-comment.md"
         upsert_comment="$RUNNER_TEMP/cf-worker-config-upsert-comment"
         marker="<!-- cf-worker-config:${WORKER} -->"
