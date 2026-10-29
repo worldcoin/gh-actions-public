@@ -1,0 +1,67 @@
+name: CF Worker Config
+
+on:
+  pull_request:
+    paths:
+      - cf-worker-config/**
+      - .github/workflows/cf-worker-config.yml
+  push:
+    branches: [main]
+    paths:
+      - cf-worker-config/**
+      - .github/workflows/cf-worker-config.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on:
+      group: arc-public-large-amd64-runner
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Run without application configuration
+        id: config
+        uses: ./cf-worker-config
+        with:
+          worker: smoke-test
+          config: absent-cf-worker-config.json
+          mode: plan
+
+      - name: Verify configuration was skipped
+        env:
+          SKIPPED: ${{ steps.config.outputs.skipped }}
+          MODE: ${{ steps.config.outputs.effective_mode }}
+        run: |
+          test "$SKIPPED" = true
+          test "$MODE" = skipped
+
+  reject-pr-writes:
+    if: github.event_name == 'pull_request'
+    runs-on:
+      group: arc-public-large-amd64-runner
+    strategy:
+      matrix:
+        mode: [plan-and-apply, sync-runtime-secrets]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Reject a write mode on a pull request
+        id: config
+        continue-on-error: true
+        uses: ./cf-worker-config
+        with:
+          worker: smoke-test
+          config: absent-cf-worker-config.json
+          mode: ${{ matrix.mode }}
+
+      - name: Verify the write was rejected
+        env:
+          OUTCOME: ${{ steps.config.outcome }}
+        run: test "$OUTCOME" = failure

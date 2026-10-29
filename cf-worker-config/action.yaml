@@ -1,0 +1,353 @@
+name: cf-worker-config
+description: Reconcile Cloudflare Workers Builds configuration with cf-worker-config.
+
+inputs:
+  worker:
+    description: Worker key from cf-worker-config.json.
+    required: true
+  config:
+    description: Path to the cf-worker-config JSON file in the caller repository.
+    required: false
+    default: cf-worker-config.json
+  mode:
+    description: Mode to run. Pull requests allow plan only. Other events default to plan-and-apply.
+    required: false
+    default: ""
+  cf_worker_config_ref:
+    description: Branch, tag, or commit SHA from worldcoin/cf-worker-config to build.
+    required: false
+    default: 7131811e5162e2a98c29728938ee7ff74d131d0f
+  github_token:
+    description: Token used to check out worldcoin/cf-worker-config and query GitHub repository metadata.
+    required: false
+    default: ""
+  app_ref:
+    description: Optional branch, tag, or commit SHA from the caller repository to check out.
+    required: false
+    default: ""
+
+outputs:
+  effective_mode:
+    description: The mode that was executed.
+    value: ${{ steps.resolve.outputs.effective_mode }}
+  skipped:
+    description: true when the config file was not present in the caller repository.
+    value: ${{ steps.resolve.outputs.skipped }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check out caller repository
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      with:
+        ref: ${{ inputs.app_ref || github.event.pull_request.head.sha || github.sha }}
+        path: app
+
+    - name: Resolve mode
+      id: resolve
+      shell: bash
+      working-directory: app
+      env:
+        MODE: ${{ inputs.mode }}
+        CONFIG: ${{ inputs.config }}
+        CF_WORKER_CONFIG_REF: ${{ inputs.cf_worker_config_ref }}
+        WORKER: ${{ inputs.worker }}
+      run: |
+        set -euo pipefail
+
+        if [ -z "$MODE" ]; then
+          case "$GITHUB_EVENT_NAME" in
+            pull_request*) MODE="plan" ;;
+            *) MODE="plan-and-apply" ;;
+          esac
+        fi
+
+        case "$MODE" in
+          plan|plan-and-apply|sync-runtime-secrets)
+            ;;
+          *)
+            echo "mode must be one of: plan, plan-and-apply, sync-runtime-secrets" >&2
+            exit 1
+            ;;
+        esac
+
+        case "$GITHUB_EVENT_NAME" in
+          pull_request*)
+            if [ "$MODE" != plan ]; then
+              echo "pull request events only support mode: plan" >&2
+              exit 1
+            fi
+            ;;
+        esac
+
+        if [ ! -f "$CONFIG" ]; then
+          echo "skipped=true" >> "$GITHUB_OUTPUT"
+          echo "effective_mode=skipped" >> "$GITHUB_OUTPUT"
+          {
+            echo "### cf-worker-config"
+            echo
+            echo "No \`$CONFIG\` found. Skipping reconciliation."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+        fi
+
+        echo "skipped=false" >> "$GITHUB_OUTPUT"
+        echo "effective_mode=$MODE" >> "$GITHUB_OUTPUT"
+
+        rm -f "$RUNNER_TEMP/cf-worker-config-failure-commented"
+        comment_file="$RUNNER_TEMP/cf-worker-config-comment.md"
+        upsert_comment="$RUNNER_TEMP/cf-worker-config-upsert-comment"
+        marker="<!-- cf-worker-config:${WORKER} -->"
+        {
+          echo "$marker"
+          echo "### cf-worker-config: \`$WORKER\`"
+          echo
+          echo "- Config: \`$CONFIG\`"
+          echo "- Mode: \`$MODE\`"
+          echo "- Tool ref: \`$CF_WORKER_CONFIG_REF\`"
+          echo "- Run: [${GITHUB_RUN_ID}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})"
+        } > "$comment_file"
+
+        cat > "$upsert_comment" <<'SCRIPT'
+        #!/usr/bin/env bash
+        set -euo pipefail
+
+        for cmd in gh jq; do
+          if ! command -v "$cmd" >/dev/null 2>&1; then
+            echo "::warning::cf-worker-config PR comments require '$cmd' on the runner; skipping comment update." >&2
+            exit 0
+          fi
+        done
+
+        comment_file="$RUNNER_TEMP/cf-worker-config-comment.md"
+        marker="<!-- cf-worker-config:${WORKER} -->"
+        existing_id="$(
+          gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --paginate \
+            | jq -r --arg marker "$marker" '.[] | select(.user.login == "github-actions[bot]" and (.body | contains($marker))) | .id' \
+            | tail -n 1
+        )"
+
+        if [ -n "$existing_id" ]; then
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing_id" \
+            -F body=@"$comment_file" >/dev/null
+        else
+          gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+            -F body=@"$comment_file" >/dev/null
+        fi
+        SCRIPT
+        chmod +x "$upsert_comment"
+
+        {
+          echo "### cf-worker-config"
+          echo
+          echo "- Worker: \`$WORKER\`"
+          echo "- Config: \`$CONFIG\`"
+          echo "- Mode: \`$MODE\`"
+          echo "- Tool ref: \`$CF_WORKER_CONFIG_REF\`"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Comment start on pull request
+      if: ${{ steps.resolve.outputs.skipped != 'true' && (steps.resolve.outputs.effective_mode == 'plan' || steps.resolve.outputs.effective_mode == 'plan-and-apply') && github.event_name == 'pull_request' }}
+      continue-on-error: true
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        WORKER: ${{ inputs.worker }}
+      run: '"$RUNNER_TEMP/cf-worker-config-upsert-comment"'
+
+    - name: Check out cf-worker-config
+      if: ${{ steps.resolve.outputs.skipped != 'true' }}
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      with:
+        repository: worldcoin/cf-worker-config
+        ref: ${{ inputs.cf_worker_config_ref }}
+        token: ${{ inputs.github_token || github.token }}
+        path: cf-worker-config
+
+    - name: Set up Go
+      if: ${{ steps.resolve.outputs.skipped != 'true' }}
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: cf-worker-config/go.mod
+        cache: false
+
+    - name: Build cf-worker-config
+      if: ${{ steps.resolve.outputs.skipped != 'true' }}
+      shell: bash
+      working-directory: cf-worker-config
+      run: go build -o "$RUNNER_TEMP/cf-worker-config" .
+
+    - name: Plan
+      id: plan
+      if: ${{ steps.resolve.outputs.skipped != 'true' && (steps.resolve.outputs.effective_mode == 'plan' || steps.resolve.outputs.effective_mode == 'plan-and-apply') }}
+      shell: bash
+      working-directory: app
+      env:
+        CONFIG: ${{ inputs.config }}
+        WORKER: ${{ inputs.worker }}
+        GITHUB_TOKEN: ${{ inputs.github_token || github.token }}
+      run: |
+        set -euo pipefail
+
+        comment_file="$RUNNER_TEMP/cf-worker-config-comment.md"
+        plan_output="$RUNNER_TEMP/cf-worker-config-plan-output.txt"
+
+        set +e
+        "$RUNNER_TEMP/cf-worker-config" plan --config "$CONFIG" --worker "$WORKER" 2>&1 \
+          | tee "$plan_output"
+        status=${PIPESTATUS[0]}
+        set -e
+
+        echo "status=$status" >> "$GITHUB_OUTPUT"
+
+        outcome="ok"
+        if [ "$status" -ne 0 ]; then
+          outcome="failed"
+        fi
+
+        {
+          echo
+          echo "#### Plan: $outcome"
+          echo
+          echo '```text'
+          cat "$plan_output"
+          echo '```'
+        } | tee -a "$comment_file" "$GITHUB_STEP_SUMMARY"
+
+    - name: Comment plan on pull request
+      if: ${{ steps.resolve.outputs.skipped != 'true' && (steps.resolve.outputs.effective_mode == 'plan' || steps.resolve.outputs.effective_mode == 'plan-and-apply') && github.event_name == 'pull_request' }}
+      continue-on-error: true
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        WORKER: ${{ inputs.worker }}
+      run: '"$RUNNER_TEMP/cf-worker-config-upsert-comment"'
+
+    - name: Fail after plan
+      if: ${{ steps.resolve.outputs.skipped != 'true' && (steps.resolve.outputs.effective_mode == 'plan' || steps.resolve.outputs.effective_mode == 'plan-and-apply') && steps.plan.outputs.status != '0' }}
+      shell: bash
+      run: |
+        touch "$RUNNER_TEMP/cf-worker-config-failure-commented"
+        exit "${{ steps.plan.outputs.status }}"
+
+    - name: Apply
+      id: apply
+      if: ${{ steps.resolve.outputs.effective_mode == 'plan-and-apply' && steps.plan.outputs.status == '0' }}
+      shell: bash
+      working-directory: app
+      env:
+        CONFIG: ${{ inputs.config }}
+        WORKER: ${{ inputs.worker }}
+        GITHUB_TOKEN: ${{ inputs.github_token || github.token }}
+      run: |
+        set -euo pipefail
+
+        comment_file="$RUNNER_TEMP/cf-worker-config-comment.md"
+        apply_output="$RUNNER_TEMP/cf-worker-config-apply-output.txt"
+
+        set +e
+        "$RUNNER_TEMP/cf-worker-config" apply --config "$CONFIG" --worker "$WORKER" 2>&1 \
+          | tee "$apply_output"
+        status=${PIPESTATUS[0]}
+        set -e
+
+        echo "status=$status" >> "$GITHUB_OUTPUT"
+
+        outcome="ok"
+        if [ "$status" -ne 0 ]; then
+          outcome="failed"
+        fi
+
+        {
+          echo
+          echo "#### Apply: $outcome"
+          echo
+          echo '```text'
+          cat "$apply_output"
+          echo '```'
+        } | tee -a "$comment_file" "$GITHUB_STEP_SUMMARY"
+
+    - name: Comment apply on pull request
+      if: ${{ steps.resolve.outputs.effective_mode == 'plan-and-apply' && github.event_name == 'pull_request' }}
+      continue-on-error: true
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        WORKER: ${{ inputs.worker }}
+      run: '"$RUNNER_TEMP/cf-worker-config-upsert-comment"'
+
+    - name: Fail after apply
+      if: ${{ steps.resolve.outputs.effective_mode == 'plan-and-apply' && steps.apply.outputs.status != '0' }}
+      shell: bash
+      run: |
+        touch "$RUNNER_TEMP/cf-worker-config-failure-commented"
+        exit "${{ steps.apply.outputs.status }}"
+
+    - name: Sync runtime secrets
+      id: sync_runtime_secrets
+      if: ${{ steps.resolve.outputs.effective_mode == 'sync-runtime-secrets' }}
+      shell: bash
+      working-directory: app
+      env:
+        CONFIG: ${{ inputs.config }}
+        WORKER: ${{ inputs.worker }}
+        GITHUB_TOKEN: ${{ inputs.github_token || github.token }}
+      run: |
+        set -euo pipefail
+
+        sync_output="$RUNNER_TEMP/cf-worker-config-sync-runtime-secrets-output.txt"
+
+        set +e
+        "$RUNNER_TEMP/cf-worker-config" sync-runtime-secrets --config "$CONFIG" --worker "$WORKER" 2>&1 \
+          | tee "$sync_output"
+        status=${PIPESTATUS[0]}
+        set -e
+
+        echo "status=$status" >> "$GITHUB_OUTPUT"
+
+        outcome="ok"
+        if [ "$status" -ne 0 ]; then
+          outcome="failed"
+        fi
+
+        {
+          echo
+          echo "#### Sync runtime secrets: $outcome"
+          echo
+          echo '```text'
+          cat "$sync_output"
+          echo '```'
+        } | tee -a "$GITHUB_STEP_SUMMARY"
+
+    - name: Fail after sync runtime secrets
+      if: ${{ steps.resolve.outputs.effective_mode == 'sync-runtime-secrets' && steps.sync_runtime_secrets.outputs.status != '0' }}
+      shell: bash
+      run: exit "${{ steps.sync_runtime_secrets.outputs.status }}"
+
+    - name: Comment workflow failure on pull request
+      if: ${{ failure() && steps.resolve.outputs.skipped == 'false' && github.event_name == 'pull_request' }}
+      continue-on-error: true
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        WORKER: ${{ inputs.worker }}
+      run: |
+        set -euo pipefail
+
+        if [ -f "$RUNNER_TEMP/cf-worker-config-failure-commented" ]; then
+          exit 0
+        fi
+
+        comment_file="$RUNNER_TEMP/cf-worker-config-comment.md"
+        {
+          echo
+          echo "#### Workflow: failed"
+          echo
+          echo "The workflow failed before cf-worker-config completed. See the run logs."
+        } >> "$comment_file"
+
+        "$RUNNER_TEMP/cf-worker-config-upsert-comment"
